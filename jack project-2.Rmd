@@ -1,0 +1,222 @@
+---
+title: "Project"
+output: html_document
+date: "2025-04-15"
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+```
+
+
+```{r}
+
+iv_data <- read_csv("/Users/jackburgess/Desktop/GAFL PROJECT/filtered_gafl_IV_variables.csv")
+dv_data <- read_csv("/Users/jackburgess/Desktop/GAFL PROJECT/filtered_gafl_data_DV.csv")
+
+shared_key <- "vag_yn"
+
+data <- left_join(dv_data, iv_data, by = shared_key)  
+
+data <- data %>%
+  select(where(~ mean(is.na(.)) < 0.9))  
+data <- data %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .))) 
+data <- data %>%
+  mutate(across(where(is.character), ~ ifelse(is.na(.), "missing", .)))
+
+multi_cols <- c("watsource_whynosafe", "borehole_chall")  
+
+data <- data %>%
+  mutate(id = row_number())
+
+long_data <- data %>%
+  select(id, all_of(multi_cols)) %>%
+  pivot_longer(cols = all_of(multi_cols), names_to = "question", values_to = "response") %>%
+  separate_rows(response, sep = " ") %>%
+  filter(response != "missing" & response != "")
+
+one_hot <- long_data %>%
+  mutate(value = 1) %>%
+  unite("question_response", question, response, sep = "_") %>%
+  pivot_wider(names_from = question_response, values_from = value, values_fill = 0)
+
+data_final <- data %>%
+  select(-all_of(multi_cols))
+
+final_combined <- left_join(data_final, one_hot, by = "id")
+
+
+
+head(final_combined)
+
+
+```
+```{r}
+library(glmnet)
+
+final_combined_numeric <- final_combined %>%
+  mutate(across(where(is.factor), ~ as.numeric(as.factor(.)))) %>%
+  select(where(is.numeric)) %>%
+  drop_na()  
+
+dv_list <- names(dv_data)
+dv_list <- dv_list[dv_list %in% names(final_combined_numeric)]
+dv_list <- dv_list[!str_detect(dv_list, "_\\d+$")]
+
+for (dv in dv_list) {
+  cat("\n=============================\n")
+  cat("LASSO Regression for:", dv, "\n")
+  cat("=============================\n")
+  
+  y <- final_combined_numeric[[dv]]
+  x <- as.matrix(final_combined_numeric %>% select(-all_of(dv)))
+  
+
+  
+  tryCatch({
+    lasso_cv <- cv.glmnet(x, y, alpha = 1, standardize = TRUE, nfolds = 10)
+    
+    coef_lasso <- coef(lasso_cv, s = "lambda.1se")
+    
+    selected_vars <- rownames(coef_lasso)[coef_lasso[, 1] != 0]
+    selected_vars <- selected_vars[selected_vars != "(Intercept)"]  
+    
+    cat("Selected predictors for", dv, ":\n")
+    print(selected_vars)
+    
+  }, error = function(e) {
+    cat("⚠️ Skipping", dv, "- Reason:", e$message, "\n")
+  })
+}
+
+
+```
+
+```{r}
+lasso_selected <- list(
+  hnear_primschool = c("hnear_secschool", "watsource", "borehole_chall_yn", "health_dist", "health_trans", "wood_unauth"),
+  hnear_secschool = c("hnear_mkt"),
+  hnear_road = c("hnear_mkt", "hallocateoften", "borehole_seaschng", "health_qual", "comsvc_health_imp", "fpolicy_action", "fclear_punish", "ffire_who", "parkatt_outside", "parkatt_harrass", "id"),
+  hnear_mkt = c("hnear_secschool", "hnear_road", "watsource", "watsource_prim", "borehole_mgmt", "health_dist", "health_chwtype", "ccrb_yn", "ccrb_name", "wood_unauth", "ftimber_punish", "ftimber_rulebreak", "crbatt_employ", "id", "watsource_whynosafe_1"),
+  hallocateoften = c("hnear_road", "id"),
+  hrank_edu = c("hrank_health"),
+  hrank_job = c("hcleardriver1", "watsource_prim", "hproblem_job", "id"),
+  watsource = c("hnear_primschool", "hnear_mkt", "watsource_safe", "borehole_func", "borehole_chall_yn", "borehole_yrchng", "watsource_whynosafe_1"),
+  watsource_prim = c("health_chwtype", "watt_tour", "hunt_prestige"),
+  watsource_safe = c("watsource", "watsource_whysafe", "borehole_chall_yn", "borehole_yrchng", "borehole_chall_2", "watsource_whynosafe_1", "watsource_whynosafe_2", "watsource_whynosafe_3", "watsource_whynosafe_97"),
+  watsource_whysafe = c("watsource_safe"),
+  borehole_func = c("watsource", "borehole_chall_yn", "borehole_yrchng"),
+  borehole_mgmt = c("watsource", "watsource_whysafe", "borehole_chall_yn", "borehole_yrchng", "fclear_punishyn", "ffire_punishyn", "ffire_who"),
+  borehole_chall_yn = c("watsource", "watsource_safe", "borehole_mgmt", "borehole_yrchng", "borehole_chall_2", "borehole_chall_3", "borehole_chall_5", "borehole_chall_97"),
+  borehole_seaschng = c("borehole_yrchng", "fclear_punish", "hfsupport_type"),
+  borehole_yrchng = c("watsource", "watsource_safe", "borehole_func", "borehole_chall_yn", "borehole_seaschng", "borehole_chall_2"),
+  health_dist = c("hnear_primschool", "hnear_mkt", "hrank_health", "hrank_edu", "borehole_func", "borehole_chall_yn", "health_trans", "health_chwfreq", "fhhinc_timber", "fincomeprod_1", "forest_noaccess", "govern_foruse", "comsvc_health_imp", "wood_unauth", "fhuntfire_rulefollow", "ffire_who", "hfrstserv_ben_6", "conserve_neg", "parkatt_waste", "id", "borehole_chall_97"),
+  health_qual = c("hnear_road", "hfsupport_who"),
+  health_out = c("health_outfreq", "health_outtype", "fclear_punish", "ftimber_yn", "ffire_yn", "ffire_who", "id"),
+  health_outfreq = c("health_out"),
+  health_outtype = c("health_out"),
+  health_chw = c("health_out", "health_chwtype", "health_chwfreq", "health_chwsvc", "forguard", "fclear_punishyn", "id"),
+  health_chwtype = c("health_chw", "health_chwfreq", "health_chwsvc", "watt_lodge", "parkatt_meat", "watsource_whynosafe_3"),
+  health_chwfreq = c("health_chw", "health_chwtype"),
+  health_chwsvc = c("health_chw", "health_chwtype", "health_chwfreq"),
+  forest_noaccess = c("noaccwhy", "noaccimpact", "forstrict_who", "forguard", "fpolicy_action", "fhuntfire_punish", "ffire_who", "parkatt_meat"),
+  noaccwhy = c("hrank_edu", "hrank_job", "forest_noaccess", "forstrict_who", "wood_unauth", "fpolicy_action", "fhuntfire_punish", "ftimber_rulebreak", "ffire_rulefollow", "watsource_whynosafe_3"),
+  noaccimpact = c("forest_noaccess"),
+  forstrict_who = c("forest_noaccess", "noaccwhy"),
+  forguard = c("forest_noaccess", "ccrb_yn", "fpolicy_effective", "fhuntfire_punish", "ftimber_punish"),
+  ccrb_yn = c("borehole_mgmt", "vag_whoattnd", "vag_womrestrict", "comsvc", "comsvc_health_imp", "comsvc_mgmt", "fpolicy_action", "ftimber_punishyn", "ffire_yn", "ffire_rulefollow", "watt_tour", "crbatt_employ"),
+  vag_yn = c("vag_name", "vag_meet", "vag_whoattnd", "vag_women", "vag_youth"),
+  vag_name = c("vag_yn"),
+  vag_meet = c("vag_yn"),
+  vag_whoattnd = c("vag_yn", "watt_tour"),
+  vag_women = c("vag_yn", "vag_name", "vag_womrestrict", "vag_youth"),
+  vag_womrestrict = c("ccrb_yn", "vag_yn", "vag_name", "vag_women", "hfsupport_type", "watt_lodge", "crbatt_employ"),
+  vag_youth = c("vag_yn", "vag_women"),
+  gov_change = c("health_chwfreq", "gov_changewho", "ffire_rulefollow"),
+  gov_changewho = c("gov_change", "fhuntfire_rulebreak"),
+  fparticipateyn = c("fincomeprod_2", "vag_whoattnd", "ftalk_who", "hunt_prestige"),
+  ftalk_who = c("fparticipateyn"),
+  comsvc = c("ccrb_yn", "comsvc_health_imp", "comsvc_mgmt", "crbatt_employ"),
+  comsvc_health_yr = c("comsvc_health_imp"),
+  comsvc_health_imp = c("comsvc_health_yr"),
+  comsvc_mgmt = c("ccrb_yn", "comsvc", "fpolicy_action", "crbatt_employ"),
+  fpolicy_action = c("hnear_road", "borehole_mgmt", "vag_whoattnd", "comsvc_health_yr", "fpolicy_effective", "ftimber_punishyn", "ffire_yn", "ffire_who", "parkatt_meat"),
+  fpolicy_effective = c("forguard", "vag_name", "fpolicy_action"),
+  fclear_yn = c("fclear_punishyn", "fclear_rulefollow", "fclear_who"),
+  fclear_punishyn = c("fclear_yn", "fclear_punish"),
+  fclear_punish = c("fclear_punishyn"),
+  fclear_rulefollow = c("fclear_yn"),
+  fclear_who = c("fclear_yn", "fclear_punishyn", "fclear_rulefollow"),
+  ftimber_yn = c("ftimber_punishyn", "ftimber_rulefollow"),
+  ftimber_punishyn = c("ftimber_yn", "ftimber_punish"),
+  ftimber_punish = c("hnear_mkt", "forguard", "ccrb_name", "ftimber_punishyn", "watt_lodge", "parkatt_harrass", "id"),
+  ftimber_rulefollow = c("ftimber_yn"),
+  ffire_yn = c("ffire_punishyn", "ffire_rulefollow", "ffire_who"),
+  ffire_punishyn = c("ffire_yn", "ffire_punish"),
+  ffire_punish = c("ffire_punishyn"),
+  ffire_rulefollow = c("ffire_yn", "ffire_punish", "ffire_who"),
+  ffire_who = c("hnear_road", "hnear_mkt", "fclear_yn", "ffire_yn", "ffire_rulefollow"),
+  hfsupport = c("hfsupport_type"),
+  hfsupport_who = c("hfsupport_type"),
+  hfsupport_type = c("hfsupport", "hfsupport_who"),
+  parkatt_meat = c("borehole_seaschng", "health_chwtype", "forest_noaccess", "ccrb_yn", "comsvc_health_imp", "fpolicy_action", "hunt_prestige", "parkatt_employ")
+)
+
+library(tidyverse)
+
+backward_elimination <- function(formula, data, p_threshold = 0.05) {
+  model <- lm(formula, data = data)
+  pvals <- summary(model)$coefficients[-1, 4] 
+  
+  while (any(pvals > p_threshold, na.rm = TRUE)) {
+    worst_predictor <- names(which.max(pvals))
+    
+  
+    current_vars <- all.vars(formula)[-1]  
+    current_vars <- setdiff(current_vars, worst_predictor)
+    
+    if (length(current_vars) == 0) break
+    
+    formula <- as.formula(paste(all.vars(formula)[1], "~", paste(current_vars, collapse = " + ")))
+    model <- lm(formula, data = data)
+    pvals <- summary(model)$coefficients[-1, 4]
+  }
+  
+  return(model)
+}
+
+numeric_dvs <- names(final_combined)[sapply(final_combined, is.numeric)]
+lasso_selected <- lasso_selected[names(lasso_selected) %in% numeric_dvs]
+
+for (dv in names(lasso_selected)) {
+  predictors <- lasso_selected[[dv]]
+  
+  if (length(predictors) == 0) {
+    cat("⚠️ Skipping", dv, "- No predictors selected by LASSO.\n")
+    next
+  }
+  
+  formula <- as.formula(paste(dv, "~", paste(predictors, collapse = " + ")))
+  
+  cat("\n=============================\n")
+  cat("Backward-Eliminated Regression for:", dv, "\n")
+  cat("=============================\n")
+  
+  tryCatch({
+    model <- backward_elimination(formula, final_combined)
+    print(summary(model))
+  }, error = function(e) {
+    cat("⚠️ Skipping", dv, "- Reason:", e$message, "\n")
+  })
+}
+
+
+
+```
+```{r}
+
+```
