@@ -1,0 +1,215 @@
+---
+title: "GAFL Final"
+author: "John Burgess"
+date: "2025-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(tidyr)
+library(dplyr)
+
+# data cleaning
+data <- read.csv("/Users/jackburgess/Desktop/GAFL PROJECT/filtered_gafl_data_all.csv")
+
+multi_select_columns <- c(
+  "hwhoperm", "watsource", "watsource_whysafe", "watsource_whynosafe",
+  "borehole_mgmt", "borehole_chall", "health_outtype", "health_chwtype",
+  "health_chwsvc", "noaccwhy", "noaccimpact", "forstrict_who", "vag_whoattnd",
+  "vag_womrestrict", "ftalk_who", "comsvc", "comsvc_mgmt", "fpolicy_action",
+  "fclear_punish", "fclear_who", "fhuntfire_punish", "fhuntfire_who",
+  "ftimber_punish", "ftimber_who", "ffire_punish", "ffire_who",
+  "hfsupport_who", "hfsupport_type", "hmine_co", "hvsize_where", "hvsize_tribe"
+)
+
+split_multiselect <- function(data, column) {
+  data %>%
+    select({{ column }}) %>%
+    mutate(id = row_number()) %>%
+    separate_rows({{ column }}, sep = " ") %>%
+    mutate(value = 1) %>%
+    pivot_wider(names_from = {{ column }}, 
+                values_from = value, 
+                names_prefix = paste0(deparse(substitute(column)), "_"),
+                values_fill = list(value = 0)) %>%
+    select(-id)
+}
+
+for (col in multi_select_columns) {
+  # Create the binary columns
+  split_cols <- split_multiselect(data, !!sym(col))
+  
+   data <- bind_cols(data, split_cols)
+}
+
+data <- data %>% select(-all_of(multi_select_columns))
+
+  
+data[data == ""] <- NA
+data <- data %>% select(where(~ any(!is.na(.))))
+data <- data %>% select(where(~ mean(is.na(.)) <= 0.75))
+```
+```{r}
+# vectors for the variables that are in the cleaned data
+
+independent_vars <- c(
+  "hvage", "hvsize", "hvsize_pop", "hvsize_chng", "hvsize_where", "hvsize_tribe",
+  "hnear_primschool", "hnear_secschool", "hnear_road", "hnear_mkt", "hmigrate_farm",
+  "health_dist", "fhhconsume", "vag_yn", "vag_youth",
+  "comsvc_watsan_yr", "comsvc_edu_yr", "comsvc_health_yr"
+)
+
+dependent_vars <- c(
+  "hnear_primschool", "hnear_secschool", "hnear_road", "hnear_mkt", "hwhoperm", 
+  "hallocateoften", "hnewclear_a", "hcleardriver1", "hcleardriver2", "hrank_health", 
+  "hrank_farmland", "hrank_edu", "hrank_job", "watsource", "watsource_prim", 
+  "watsource_hhnum", "watsource_safe", "watsource_whysafe", "watsource_whynosafe", 
+  "borehole_func", "borehole_nonfunc", "borehole_mgmt", "borehole_chall_yn", 
+  "borehole_chall", "borehole_seaschng", "borehole_yrchng", "health_dist", 
+  "health_trans", "health_qual", "health_out", "health_outfreq", "health_outtype", 
+  "health_chw", "health_chwtype", "health_chwfreq", "health_chwsvc", "fhhinc_timber", 
+  "fhhinc_nontimber", "fincomeprod_1", "fincomeprod_2", "forest_noaccess", "noaccwhy", 
+  "noaccimpact", "forstrict_who", "forguard", "ccrb_yn", "ccrb_name", "vag_yn", 
+  "vag_name", "vag_meet", "vag_whoattnd", "vag_women", "vag_womrestrict", "vag_youth", 
+  "govern_foruse", "gov_change", "gov_changewho", "fparticipateyn", "ftalk_who", 
+  "comsvc", "comsvc_watsan_yr", "comsvc_watsan_imp", "comsvc_edu_yr", "comsvc_edu_imp", 
+  "comsvc_health_yr", "comsvc_health_imp", "comsvc_mgmt", "hunt_unauth", "wood_unauth", 
+  "fpolicy_action", "fpolicy_effective", "fclear_yn", "fclear_punishyn", "fclear_punish", 
+  "fclear_rulebreak", "fclear_rulefollow", "fclear_who", "fclear_whomost", "fhuntfire_yn", 
+  "fhuntfire_punishyn", "fhuntfire_punish", "fhuntfire_rulebreak", "fhuntfire_rulefollow", 
+  "fhuntfire_who", "fhuntfire_whomost", "ftimber_yn", "ftimber_punishyn", "ftimber_punish", 
+  "ftimber_rulebreak", "ftimber_rulefollow", "ftimber_who", "ftimber_whomost", "ffire_yn", 
+  "ffire_punishyn", "ffire_punish", "ffire_rulebreak", "ffire_rulefollow", "ffire_who", 
+  "ffire_whomost", "hproblem_job", "hfsupport", "hfsupport_who", "hfsupport_type", 
+  "hfrstserv_ben_1", "hfrstserv_ben_2", "hfrstserv_ben_3", "hfrstserv_ben_4", 
+  "hfrstserv_ben_5", "hfrstserv_ben_6", "htourism_pay", "htourism_whoreceive", 
+  "htourism_amt", "hmine_co", "hmine_pay", "hmine_whoreceive", "hmine_amt", 
+  "watt_tour", "watt_lodge", "crbatt_employ", "conserve_neg", "hunt_prestige", 
+  "parkatt_waste", "parkatt_help", "parkatt_employ", "parkatt_meat", "parkatt_adverse", 
+  "parkatt_outside", "parkatt_harrass"
+)
+
+independent_vars_existing <- independent_vars[independent_vars %in% names(data)]
+
+print(independent_vars_existing)
+
+
+dependent_vars_existing <- dependent_vars[dependent_vars %in% names(data)]
+
+print(dependent_vars_existing)
+```
+
+```{r} 
+# running the regression and storing it in a list 
+
+results <- list()
+for (dep_var in dependent_vars_existing) {
+  formula <- as.formula(
+    paste(dep_var, "~", paste(independent_vars_existing, collapse = " + "))
+  )
+  
+  model <- lm(formula, data = data, na.action = na.omit)
+  results[[dep_var]] <- model 
+}
+
+summary(results[[dep_var]])
+
+
+
+```
+
+```{r} 
+# reading the results 
+
+for (dep_var in names(results)) {
+  model_summary <- summary(results[[dep_var]])
+  
+  coefs <- model_summary$coefficients
+  
+  signif_vars <- rownames(coefs)[coefs[, 4] < 0.05]
+  signif_vars <- signif_vars[signif_vars != "(Intercept)"]
+  
+  cat("\nDependent Variable:", dep_var, "\n")
+  print(signif_vars)
+}
+
+
+
+```
+
+```{r} 
+# putting results into latex 
+
+library(stargazer)
+
+# Define groups manually based on your Excel
+land_clearing_dvs <- c("fclear_yn", "fclear_punishyn", "fclear_punish", "fclear_rulebreak", "fclear_rulefollow",
+                       "fclear_who", "fclear_whomost", "fhuntfire_yn", "fhuntfire_punishyn", "fhuntfire_punish",
+                       "fhuntfire_rulebreak", "fhuntfire_rulefollow", "fhuntfire_who", "fhuntfire_whomost",
+                       "ftimber_yn", "ftimber_punishyn", "ftimber_punish", "ftimber_rulebreak", "ftimber_rulefollow",
+                       "ftimber_who", "ftimber_whomost", "ffire_yn", "ffire_punishyn", "ffire_punish",
+                       "ffire_rulebreak", "ffire_rulefollow", "ffire_who", "ffire_whomost", "hfrstserv_ben_2",
+                       "hfrstserv_ben_3", "hfrstserv_ben_4", "parkatt_waste", "hwhoperm", "hallocateoften",
+                       "hnewclear_a", "hcleardriver1", "hcleardriver2", "hrank_farmland", "wood_unauth",
+                       "fpolicy_action")
+
+forest_governance_dvs <- c("hfsupport", "hfsupport_who", "hfsupport_type", "hfrstserv_ben_1", "hfrstserv_ben_2",
+                           "hfrstserv_ben_3", "hfrstserv_ben_4", "hfrstserv_ben_5", "hfrstserv_ben_6",
+                           "htourism_pay", "htourism_whoreceive", "htourism_amt", "hcarbon_pay",
+                           "hcarbon_whoreceive", "hcarbon_amt", "htimber_co", "htimber_pay",
+                           "htimber_whoreceive", "htimber_amt", "hmine_co", "hmine_pay", "hmine_whoreceive",
+                           "hmine_amt", "forest_noaccess", "noaccwhy", "noaccimpact", "forstrict_who",
+                           "forguard", "ccrb_yn", "ccrb_name", "vag_yn", "vag_name", "vag_meet", "vag_whoattnd",
+                           "vag_women", "vag_womrestrict", "vag_youth", "govern_foruse", "gov_change",
+                           "gov_changewho", "fparticipateyn", "ftalk_who", "hunt_unauth", "fpolicy_effective",
+                           "wood_unauth", "fpolicy_action")
+
+livelihoods_dvs <- c("hfrstserv_ben_6", "watt_tour", "watt_lodge", "crbatt_employ", "hunt_prestige",
+                     "conserve_neg", "parkatt_help", "parkatt_employ", "parkatt_meat", "parkatt_adverse",
+                     "parkatt_outside", "hrank_job", "fhhinc_timber", "fhhinc_nontimber",
+                     "fincomeprod_1", "fincomeprod_2", "hproblem_job")
+
+health_outcomes_dvs <- c("parkatt_harrass", "hnear_primschool", "hnear_secschool", "hnear_road", "hnear_mkt",
+                         "hrank_health", "hrank_edu", "watsource", "watsource_prim", "watsource_hhnum",
+                         "watsource_safe", "watsource_whysafe", "watsource_whynosafe", "borehole_func",
+                         "borehole_nonfunc", "borehole_mgmt", "borehole_chall_yn", "borehole_chall",
+                         "borehole_seaschng", "borehole_yrchng", "health_dist", "health_trans", "health_qual",
+                         "health_out", "health_outfreq", "health_outtype", "health_chw", "health_chwtype",
+                         "health_chwfreq", "health_chwsvc", "comsvc", "comsvc_watsan_yr", "comsvc_watsan_imp",
+                         "comsvc_energy_yr", "comsvc_energy_imp", "comsvc_edu_yr", "comsvc_edu_imp",
+                         "comsvc_health_yr", "comsvc_health_imp", "comsvc_mgmt")
+
+# Group into a list
+groups <- list(
+  LAND_CLEARING = land_clearing_dvs,
+  FOREST_GOVERNANCE = forest_governance_dvs,
+  LIVELIHOODS = livelihoods_dvs,
+  HEALTH_OUTCOMES = health_outcomes_dvs
+)
+
+# Now generate LaTeX tables
+for (group_name in names(groups)) {
+  dv_list <- groups[[group_name]]
+  
+  # Filter models for this group
+  group_models <- models_sig[names(models_sig) %in% dv_list]
+  
+  if (length(group_models) > 0) {
+    # Create the table
+    cat("\\begin{table}[!htbp]\n\\centering\n\\small\n")
+    cat(stargazer(group_models,
+                  type = "latex",
+                  title = paste("Significant Models for", gsub("_", " ", group_name)),
+                  model.names = FALSE,
+                  column.labels = names(group_models)))
+    cat("\\end{table}\n\n")
+  }
+}
+
+
+```
